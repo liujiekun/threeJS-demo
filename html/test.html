@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+    </style>
+    <title>测试</title>
+    <script src="../js/three.js"></script>
+    <script src="../js/dat.gui.min.js"></script>
+    <script src="../js/OrbitControls.js"></script>
+</head>
+
+<body>
+    <script>
+        var scene, camera, renderer, controls;
+        var target1, target2;
+        var angle = 0, flag = 1, lightFlag = 1, lightCenter = 0;
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+            camera.position.z = 100;
+            camera.lookAt(scene.position);
+            scene.add(camera);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            // renderer.shadowMap.type = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
+            document.body.appendChild(renderer.domElement);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.update();
+
+            // var axesHelper = new THREE.AxesHelper(10);
+            // scene.add(axesHelper);
+        }
+
+        function createShapes() {
+            createBones();
+        }
+
+
+        function run() {
+            init();
+            createShapes();
+            createAmbientLight();
+            createPlane();
+            // createDirectionalLight();
+            createTargets();
+
+            createSpotlist(new THREE.Vector3(-50, 50, 0), target1);
+            createSpotlist(new THREE.Vector3(50, 50, 0), target2);
+            render();
+        }
+
+        function render() {
+            requestAnimationFrame(render);
+            angle += flag * 1;
+            angle = angle % 30;
+            if (angle >= 29 || angle <= -29) {
+                flag = -flag
+            }
+            mesh.skeleton.bones[3].rotation.z = angle / 180 * Math.PI;
+            mesh.skeleton.bones[1].rotation.z = -angle / 180 * Math.PI;
+
+            if (target1.position.x >= 0 || target1.position.x <= -40) {
+                lightFlag = -lightFlag
+            }
+            target1.position.x += lightFlag * 0.5;
+            target2.position.x += -lightFlag * 0.5;
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        run();
+
+        function createBones() {
+            //计算参数，这些参数在多处用到
+            var segmentHeight = 8;
+            var segmentCount = 4;
+            var height = segmentHeight * segmentCount;   // 32
+            var halfHeight = height * 0.5; // 16
+
+            var sizing = {
+                segmentHeight: segmentHeight,
+                segmentCount: segmentCount,
+                height: height,
+                halfHeight: halfHeight
+            };
+
+            //创建骨架
+            bones = [];
+            var prevBone = new THREE.Bone();
+            bones.push(prevBone);
+            prevBone.position.y = - sizing.halfHeight;
+            for (var i = 0; i < sizing.segmentCount; i++) {
+                var bone = new THREE.Bone();
+                bone.position.y = sizing.segmentHeight;
+                bones.push(bone);
+                prevBone.add(bone);
+                prevBone = bone;
+
+            }
+            skeleton = new THREE.Skeleton(bones);
+
+
+            //创建形状
+            var geometry = new THREE.CylinderGeometry(
+                5,                       // radiusTop
+                5,                       // radiusBottom
+                sizing.height,           // height
+                8,                       // radiusSegments
+                sizing.segmentCount * 3, // heightSegments
+                false                     // openEnded
+            );
+            //将形状的每个点和骨骼建立关联，其中skinIndices指定该点由哪些骨骼控制（通过骨骼序号指定），skinWeights指定这些骨骼对该点的控制能力
+            for (var i = 0; i < geometry.vertices.length; i++) {
+                var vertex = geometry.vertices[i];
+                var y = (vertex.y + sizing.halfHeight);
+                var skinIndex = Math.floor(y / sizing.segmentHeight);
+                var skinWeight = (y % sizing.segmentHeight) / sizing.segmentHeight;
+                geometry.skinIndices.push(new THREE.Vector4(skinIndex, skinIndex + 1, 0, 0));
+                geometry.skinWeights.push(new THREE.Vector4(1 - skinWeight, skinWeight, 0, 0));
+            }
+
+            var material = new THREE.MeshPhongMaterial({
+                skinning: true,
+                color: 0x156289,
+                emissive: 0xa72534,
+                side: THREE.DoubleSide,
+                flatShading: THREE.FlatShading,
+                wireframe: true
+            });
+            mesh = new THREE.SkinnedMesh(geometry, material);
+
+            //绑定骨架和网格，任务完成
+            mesh.add(bones[0]);
+            mesh.bind(skeleton);
+            mesh.scale.multiplyScalar(1);
+            mesh.castShadow = true;
+            scene.add(mesh);
+
+            //SkeletonHelper可以用线显示出骨架，帮助我们调试骨架，可有可无
+            skeletonHelper = new THREE.SkeletonHelper(mesh);
+            skeletonHelper.material.linewidth = 2;
+            scene.add(skeletonHelper);
+        }
+        function createAmbientLight() {
+            var light = new THREE.AmbientLight(0x404040); // soft white light
+            scene.add(light);
+        }
+        function createPlane() {
+            //Create a plane that receives shadows (but does not cast them)
+            var planeGeometry = new THREE.PlaneBufferGeometry(100, 100, 32, 32);
+            var planeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+            var plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = -20;
+            plane.receiveShadow = true;
+            scene.add(plane);
+        }
+        function createDirectionalLight() {
+            var directionalLight = new THREE.DirectionalLight(0xffffff);
+            directionalLight.position.set(0, 100, 0);			//default; directionalLight shining from top
+            directionalLight.castShadow = true;            // default false
+
+            //Set up shadow properties for the directionalLight
+            directionalLight.shadow.mapSize.width = 512;  // default
+            directionalLight.shadow.mapSize.height = 512; // default
+            directionalLight.shadow.camera.left = -10;    // default
+            directionalLight.shadow.camera.right = 10;    // default
+            directionalLight.shadow.camera.top = 10;    // default
+            directionalLight.shadow.camera.bottom = -10;    // default
+            directionalLight.shadow.camera.near = 0.5;    // default
+            directionalLight.shadow.camera.far = 500;     // default
+            directionalLight.rotation.y = -Math.PI / 2;
+            scene.add(directionalLight);
+
+            // //Create a helper for the shadow camera (optional)
+            // var helper = new THREE.CameraHelper(directionalLight.shadow.camera);
+            // scene.add(helper);
+        }
+        function createSpotlist(Vector3, target) {
+            var spotLight = new THREE.SpotLight(0xffffff);
+            spotLight.position.set(Vector3.x, Vector3.y, Vector3.z);
+
+            spotLight.castShadow = true;
+            spotLight.angle = Math.PI / 18;
+            spotLight.shadow.mapSize.width = 512;
+            spotLight.shadow.mapSize.height = 512;
+
+            spotLight.shadow.camera.near = 0.5;
+            spotLight.shadow.camera.far = 500;
+            spotLight.shadow.camera.fov = 30;
+            spotLight.target = target;
+            scene.add(spotLight);
+
+            // Create a helper for the spotlight
+            // var helper = new THREE.SpotLightHelper(spotLight);
+            // scene.add(helper);
+
+            // //Create a helper for the shadow camera (optional)
+            // var helper = new THREE.CameraHelper(spotLight.shadow.camera);
+            // scene.add(helper);
+        }
+        function createTargets() {
+            target1 = new THREE.Object3D();
+            target1.position.set(-20, 0, 0);
+
+            scene.add(target1);
+            target2 = new THREE.Object3D();
+            target2.position.set(20, 0, 0);
+            scene.add(target2);
+        }
+    </script>
+</body>
+
+</html>

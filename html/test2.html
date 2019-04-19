@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <style>
+    </style>
+    <title>测试</title>
+    <script src="../js/three.js"></script>
+    <script src="../js/dat.gui.min.js"></script>
+    <script src="../js/OrbitControls.js"></script>
+    <script src="../js/util.js"></script>
+</head>
+
+<body>
+    <script>
+        var scene, camera, renderer, controls;
+        var target1, target2;
+        var angle = 0, flag = 1, lightFlag = 1, lightCenter = 0;
+        var sticks; // 荧光棒
+        var roles; // 主角
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 500);
+            camera.position.z = 200;
+            camera.lookAt(scene.position);
+            scene.add(camera);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // default THREE.PCFShadowMap
+            document.body.appendChild(renderer.domElement);
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.update();
+
+            // var axesHelper = new THREE.AxesHelper(10);
+            // scene.add(axesHelper);
+        }
+
+        function run() {
+            init();
+            roles = createBones(1, 5, 5, 8, true, false); //创建角色
+            bang = createBones(1, 0.5, 0.5, 8, false, false, new THREE.MeshStandardMaterial({
+                skinning: true,
+                color: 0xccffff,
+                // emissive: 0xccffff,
+                side: THREE.DoubleSide,
+                flatShading: THREE.FlatShading
+            })); // 创建钢管
+            bang[0].add(roles[0]); // 让主角绕着钢管绕圈
+            createAmbientLight(); // 绘制环境光
+            createPlane(); // 创建舞台平面
+            createDirectionalLight(); // 平行光束
+            createTargets(); // 创建点光源跟踪
+            sticks = createBones(30, 0.1, 0.2, 2, false, true, new THREE.MeshPhongMaterial({
+                skinning: true,
+                color: 0xffff66,
+                emissive: 0xa72534,
+                side: THREE.DoubleSide,
+                flatShading: THREE.FlatShading
+            })); // 创建荧光棒
+            createSpotlist(new THREE.Vector3(-50, 50, 0), target1);
+            createSpotlist(new THREE.Vector3(50, 50, 0), target2);
+            getTextCanvas(createTextPlane, "许嵩", "../images/xusong.jpg");
+            getTextCanvas(createTextCube, "我爱你", "../images/xusong.jpg");
+            render();
+        }
+
+        function render() {
+
+            requestAnimationFrame(render);
+            controls.update();
+            angle += flag * 1;
+            angle = angle % 30;
+            if (angle >= 29 || angle <= -29) {
+                flag = -flag
+            }
+            roles[0].skeleton.bones[3].rotation.z = angle / 180 * Math.PI;
+            roles[0].skeleton.bones[1].rotation.z = -angle / 180 * Math.PI;
+            // 点光源跟随target移动
+            if (target1.position.x >= 0 || target1.position.x <= -40) {
+                lightFlag = -lightFlag
+            }
+            target1.position.x += lightFlag * 0.5;
+            target2.position.x += -lightFlag * 0.5;
+            //荧光棒在各自的幅度内移动
+            for (let i = 0; i < sticks.length; i++) {
+                let stick = sticks[i];
+                stick.skeleton.bones[0].rotation.z += 0.01 * stick.swingFlag;
+                stick.positionNow += 0.01 * stick.swingFlag;
+                if (Math.abs(stick.positionNow) > Math.abs(stick.swingRange)) {
+                    stick.swingFlag = -stick.swingFlag
+                }
+            }
+            bang[0].rotation.y += 0.02;
+            renderer.render(scene, camera);
+        }
+
+        run();
+
+        function createBones(num, bigRadius, smallRadius, segmentHeight, isRole, isSticks, diyMaterial) {
+            var meshes = []
+            //计算参数，这些参数在多处用到
+            var segmentHeight = segmentHeight;
+            var segmentCount = 4;
+            var height = segmentHeight * segmentCount;   // 32
+            var halfHeight = height * 0.5; // 16
+
+            var sizing = {
+                segmentHeight: segmentHeight,
+                segmentCount: segmentCount,
+                height: height,
+                halfHeight: halfHeight
+            };
+            for (let j = 0; j < num; j++) {
+                //创建骨架
+                var bones = [];
+                var prevBone = new THREE.Bone();
+                bones.push(prevBone);
+                prevBone.position.y = - sizing.halfHeight;
+                for (var i = 0; i < sizing.segmentCount; i++) {
+                    var bone = new THREE.Bone();
+                    bone.position.y = sizing.segmentHeight;
+                    bones.push(bone);
+                    prevBone.add(bone);
+                    prevBone = bone;
+
+                }
+                var skeleton = new THREE.Skeleton(bones);
+
+
+                //创建形状
+                var geometry = new THREE.CylinderGeometry(
+                    bigRadius,                       // radiusTop
+                    smallRadius,                       // radiusBottom
+                    sizing.height,           // height
+                    8,                       // radiusSegments
+                    sizing.segmentCount * 3, // heightSegments
+                    false                     // openEnded
+                );
+                //将形状的每个点和骨骼建立关联，其中skinIndices指定该点由哪些骨骼控制（通过骨骼序号指定），skinWeights指定这些骨骼对该点的控制能力
+                for (var i = 0; i < geometry.vertices.length; i++) {
+                    var vertex = geometry.vertices[i];
+                    var y = (vertex.y + sizing.halfHeight);
+                    var skinIndex = Math.floor(y / sizing.segmentHeight);
+                    var skinWeight = (y % sizing.segmentHeight) / sizing.segmentHeight;
+                    geometry.skinIndices.push(new THREE.Vector4(skinIndex, skinIndex + 1, 0, 0));
+                    geometry.skinWeights.push(new THREE.Vector4(1 - skinWeight, skinWeight, 0, 0));
+                }
+                // 有自定义材料就用自定义材料，否则用默认的
+                var material = diyMaterial || new THREE.MeshPhongMaterial({
+                    skinning: true,
+                    color: 0x156289,
+                    emissive: 0xa72534,
+                    side: THREE.DoubleSide,
+                    flatShading: THREE.FlatShading,
+                    wireframe: true
+                });
+                var mesh = new THREE.SkinnedMesh(geometry, material);
+
+                //绑定骨架和网格，任务完成
+                mesh.add(bones[0]);
+                mesh.bind(skeleton);
+                mesh.scale.multiplyScalar(1);
+                mesh.castShadow = true;
+                meshes.push(mesh);
+                scene.add(mesh);
+
+                if (isRole) {
+                    mesh.position.z = 10;
+                }
+
+                if (isSticks) {
+                    let positionX = util.createRandomPos(-100, 100);
+                    let positionY = util.createRandomPos(0, 50);
+                    if (Math.abs(positionX) < 50) {
+                        positionY += 50;
+                    }
+                    mesh.position.set(positionX, positionY, -50);
+                    mesh.swingFlag = 1;
+                    mesh.swingRange = util.createRandomPos(Math.PI / 6, Math.PI / 2);
+                    mesh.positionNow = 0;
+                }
+
+                // //SkeletonHelper可以用线显示出骨架，帮助我们调试骨架，可有可无
+                // skeletonHelper = new THREE.SkeletonHelper(mesh);
+                // skeletonHelper.material.linewidth = 2;
+                // scene.add(skeletonHelper);
+            }
+            return meshes;
+        }
+        function createAmbientLight() {
+            var light = new THREE.AmbientLight(0x404040); // soft white light
+            scene.add(light);
+        }
+        function createPlane() {
+            //Create a plane that receives shadows (but does not cast them)
+            var planeGeometry = new THREE.PlaneBufferGeometry(100, 100, 32, 32);
+            var planeMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+            var plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = -20;
+            plane.receiveShadow = true;
+            scene.add(plane);
+        }
+        function createDirectionalLight() {
+            var directionalLight = new THREE.DirectionalLight(0xffffff);
+            directionalLight.position.set(0, 100, 0);			//default; directionalLight shining from top
+            directionalLight.castShadow = true;            // default false
+
+            //Set up shadow properties for the directionalLight
+            directionalLight.shadow.mapSize.width = 512;  // default
+            directionalLight.shadow.mapSize.height = 512; // default
+            directionalLight.shadow.camera.left = -1;    // default
+            directionalLight.shadow.camera.right = 1;    // default
+            directionalLight.shadow.camera.top = 1;    // default
+            directionalLight.shadow.camera.bottom = -1;    // default
+            directionalLight.shadow.camera.near = 0.5;    // default
+            directionalLight.shadow.camera.far = 500;     // default
+            scene.add(directionalLight);
+
+            // //Create a helper for the shadow camera (optional)
+            // var helper = new THREE.CameraHelper(directionalLight.shadow.camera);
+            // scene.add(helper);
+        }
+        function createSpotlist(Vector3, target) {
+            var spotLight = new THREE.SpotLight(0xffffff);
+            spotLight.position.set(Vector3.x, Vector3.y, Vector3.z);
+
+            spotLight.castShadow = true;
+            spotLight.angle = Math.PI / 18;
+            spotLight.shadow.mapSize.width = 512;
+            spotLight.shadow.mapSize.height = 512;
+
+            spotLight.shadow.camera.near = 0.5;
+            spotLight.shadow.camera.far = 500;
+            spotLight.shadow.camera.fov = 30;
+            spotLight.target = target;
+            scene.add(spotLight);
+
+            // Create a helper for the spotlight
+            // var helper = new THREE.SpotLightHelper(spotLight);
+            // scene.add(helper);
+
+            // //Create a helper for the shadow camera (optional)
+            // var helper = new THREE.CameraHelper(spotLight.shadow.camera);
+            // scene.add(helper);
+        }
+        function createTargets() {
+            target1 = new THREE.Object3D();
+            target1.position.set(-20, 0, 0);
+
+            scene.add(target1);
+            target2 = new THREE.Object3D();
+            target2.position.set(20, 0, 0);
+            scene.add(target2);
+        }
+
+
+        function getTextCanvas(createFn, text, src) {
+            var width = 512, height = 256;
+            var canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            // canvas.style.backgroundImage = "url('three/xusong.jpg')";
+            var ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#C3C3C3'; // 背景颜色
+            ctx.fillRect(0, 0, width, height);
+            var img = new Image();
+            img.src = src;
+            img.onload = function () {
+                // 将图片画到canvas上面上去！
+                ctx.drawImage(img, 0, 0, 512, 256);
+                createFn(canvas); // 利用该canvas构建要用的物体
+                ctx.font = 50 + 'px " bold';
+                ctx.fillStyle = '#2891FF';  // 文字颜色
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, width / 2, height / 2);
+            }
+        }
+        function createTextPlane(canvas) {
+            //Create a plane that receives shadows (but does not cast them)
+            var geometry = new THREE.PlaneGeometry(100, 50, 32);
+            var texture = new THREE.Texture(canvas); // canvas做纹理
+            texture.needsUpdate = true;
+            var materials = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }) // top
+            // var materials = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), side: THREE.DoubleSide }) // top
+            var textPlane = new THREE.Mesh(geometry, materials);
+            textPlane.position.z = -50;
+            textPlane.receiveShadow = true;
+            scene.add(textPlane);
+        }
+        function createTextCube(canvas) {
+            //Create a plane that receives shadows (but does not cast them)
+            var geometry = new THREE.BoxGeometry(30, 30, 30);
+            // var texture = new THREE.TextureLoader().load( 'three/xusong.jpg' ); // textloader做纹理
+            // var texture = new THREE.CanvasTexture(getTextCanvas('许嵩')); // canvas做纹理
+            var texture = new THREE.Texture(canvas);
+            texture.needsUpdate = true;
+            // console.log(texture, 'texture')
+            var materials = [
+                new THREE.MeshBasicMaterial({ color: 'blue' }), // right
+                new THREE.MeshBasicMaterial({ color: 'yellow' }), // left
+                new THREE.MeshBasicMaterial({ color: 'black' }), // bottom
+                new THREE.MeshBasicMaterial({ color: 'green' }), // back
+                new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+                new THREE.MeshBasicMaterial({ color: 'red' }) // front 
+            ] // top
+            // var materials = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cav), side: THREE.DoubleSide }) // top
+            var textCube = new THREE.Mesh(geometry, materials);
+            textCube.position.y = 50;
+            textCube.receiveShadow = true;
+            scene.add(textCube);
+        }
+    </script>
+</body>
+
+</html>
