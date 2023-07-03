@@ -1,0 +1,7 @@
+const express = require("express")
+const path = require("path")
+const request = require("request")
+const app = express()
+const root = path.resolve(__dirname, "./../")
+app.use(express.static(root))
+app.listen(3000)
